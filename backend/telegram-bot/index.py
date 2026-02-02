@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import time
 
 def handler(event: dict, context) -> dict:
     '''Telegram бот для розыгрыша призов салона красоты'''
@@ -37,6 +38,9 @@ def handler(event: dict, context) -> dict:
         
         message = body['message']
         chat_id = message['chat']['id']
+        user_id = message['from']['id']
+        username = message['from'].get('username', '')
+        first_name = message['from'].get('first_name', '')
         text = message.get('text', '')
         
         bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
@@ -49,11 +53,11 @@ def handler(event: dict, context) -> dict:
             }
         
         if text == '/start':
-            response = send_welcome_message(bot_token, chat_id)
-        elif text == '🎲 БРОСИТЬ КУБИК':
-            response = handle_dice_roll(bot_token, chat_id)
+            response = send_welcome_message(bot_token, chat_id, user_id)
+        elif text == 'Бросить кубик':
+            response = handle_dice_roll(bot_token, chat_id, user_id, username, first_name)
         else:
-            response = send_help_message(bot_token, chat_id)
+            response = {'ok': True}
         
         return {
             'statusCode': 200,
@@ -69,25 +73,75 @@ def handler(event: dict, context) -> dict:
         }
 
 
-def send_welcome_message(bot_token: str, chat_id: int) -> dict:
+def check_already_participated(user_id: int) -> bool:
+    '''Проверяет участвовал ли пользователь ранее'''
+    import psycopg2
+    
+    db_url = os.environ.get('DATABASE_URL', '')
+    if not db_url:
+        return False
+    
+    try:
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute('SELECT COUNT(*) FROM participants WHERE user_id = %s', (user_id,))
+        count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        return count > 0
+    except:
+        return False
+
+
+def save_participant(user_id: int, username: str, first_name: str, prize_amount: int, prize_label: str):
+    '''Сохраняет участника в базу данных'''
+    import psycopg2
+    
+    db_url = os.environ.get('DATABASE_URL', '')
+    if not db_url:
+        return
+    
+    try:
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO participants (user_id, username, first_name, prize_amount, prize_label) VALUES (%s, %s, %s, %s, %s)',
+            (user_id, username, first_name, prize_amount, prize_label)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except:
+        pass
+
+
+def send_welcome_message(bot_token: str, chat_id: int, user_id: int) -> dict:
     '''Отправляет приветственное сообщение с призами'''
     import urllib.request
     
-    welcome_text = (
-        "✨ <b>Добро пожаловать в розыгрыш призов!</b> ✨\n\n"
-        "🎁 <b>Вот какие подарки можно выиграть:</b>\n\n"
-        "🏆 Сертификат на 10 000₽\n"
-        "💎 Сертификат на 5 000₽\n"
-        "💰 Сертификат на 1 000₽\n"
-        "🎀 Сертификат на 500₽\n\n"
-        "🎲 <b>Бросай кубик, чтобы узнать что выпадет именно тебе!</b>"
-    )
+    already_participated = check_already_participated(user_id)
     
-    keyboard = {
-        'keyboard': [[{'text': '🎲 БРОСИТЬ КУБИК'}]],
-        'resize_keyboard': True,
-        'one_time_keyboard': False
-    }
+    if already_participated:
+        welcome_text = (
+            "Вы уже участвовали в розыгрыше.\n\n"
+            "Ваш приз ожидает вас в салоне."
+        )
+        keyboard = {'remove_keyboard': True}
+    else:
+        welcome_text = (
+            "Добро пожаловать в розыгрыш призов.\n\n"
+            "<b>Вот какие подарки можно выиграть:</b>\n\n"
+            "- Сертификат в салон на 10 000₽\n"
+            "- Сертификат в салон на 5 000₽\n"
+            "- Сертификат в салон на 1 000₽\n"
+            "- Сертификат в салон на 500₽\n\n"
+            "Бросьте кубик, чтобы узнать что выпадет именно вам."
+        )
+        keyboard = {
+            'keyboard': [[{'text': 'Бросить кубик'}]],
+            'resize_keyboard': True,
+            'one_time_keyboard': True
+        }
     
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
     data = json.dumps({
@@ -102,15 +156,27 @@ def send_welcome_message(bot_token: str, chat_id: int) -> dict:
         return json.loads(response.read().decode('utf-8'))
 
 
-def handle_dice_roll(bot_token: str, chat_id: int) -> dict:
+def handle_dice_roll(bot_token: str, chat_id: int, user_id: int, username: str, first_name: str) -> dict:
     '''Обрабатывает бросок кубика и определяет приз'''
     import urllib.request
     
+    if check_already_participated(user_id):
+        url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+        data = json.dumps({
+            'chat_id': chat_id,
+            'text': 'Вы уже участвовали в розыгрыше. Ваш приз ожидает вас в салоне.',
+            'reply_markup': {'remove_keyboard': True}
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8'))
+    
     prizes = [
-        {'amount': 10000, 'label': '🏆 Сертификат на 10 000₽', 'chance': 5, 'emoji': '🏆'},
-        {'amount': 5000, 'label': '💎 Сертификат на 5 000₽', 'chance': 15, 'emoji': '💎'},
-        {'amount': 1000, 'label': '💰 Сертификат на 1 000₽', 'chance': 30, 'emoji': '💰'},
-        {'amount': 500, 'label': '🎀 Сертификат на 500₽', 'chance': 50, 'emoji': '🎀'},
+        {'amount': 10000, 'label': 'Сертификат в салон на 10 000₽', 'chance': 5},
+        {'amount': 5000, 'label': 'Сертификат в салон на 5 000₽', 'chance': 15},
+        {'amount': 1000, 'label': 'Сертификат в салон на 1 000₽', 'chance': 30},
+        {'amount': 500, 'label': 'Сертификат в салон на 500₽', 'chance': 50},
     ]
     
     rand = random.random() * 100
@@ -123,69 +189,34 @@ def handle_dice_roll(bot_token: str, chat_id: int) -> dict:
             selected_prize = prize
             break
     
-    url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
-    
-    wait_text = "🎲 Бросаем кубик..."
-    data_wait = json.dumps({
+    url_dice = f'https://api.telegram.org/bot{bot_token}/sendDice'
+    data_dice = json.dumps({
         'chat_id': chat_id,
-        'text': wait_text
+        'emoji': '🎲'
     }).encode('utf-8')
     
-    req_wait = urllib.request.Request(url, data=data_wait, headers={'Content-Type': 'application/json'})
-    urllib.request.urlopen(req_wait)
+    req_dice = urllib.request.Request(url_dice, data=data_dice, headers={'Content-Type': 'application/json'})
+    urllib.request.urlopen(req_dice)
+    
+    time.sleep(5)
     
     result_text = (
-        f"🎉 <b>ПОЗДРАВЛЯЕМ!</b> 🎉\n\n"
-        f"{selected_prize['emoji']} <b>Вы выиграли:</b>\n"
+        f"<b>Поздравляем!</b>\n\n"
+        f"Вы выиграли:\n"
         f"<b>{selected_prize['label']}</b>\n\n"
-        f"✨ Ваш приз уже ждёт вас в салоне!\n\n"
-        f"📍 Приходите к нам за сертификатом"
+        f"Ваш приз ожидает вас в салоне."
     )
     
-    keyboard = {
-        'keyboard': [[{'text': '🎲 БРОСИТЬ КУБИК'}]],
-        'resize_keyboard': True,
-        'one_time_keyboard': False
-    }
-    
+    url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
     data_result = json.dumps({
         'chat_id': chat_id,
         'text': result_text,
         'parse_mode': 'HTML',
-        'reply_markup': keyboard
+        'reply_markup': {'remove_keyboard': True}
     }).encode('utf-8')
+    
+    save_participant(user_id, username, first_name, selected_prize['amount'], selected_prize['label'])
     
     req_result = urllib.request.Request(url, data=data_result, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req_result) as response:
-        return json.loads(response.read().decode('utf-8'))
-
-
-def send_help_message(bot_token: str, chat_id: int) -> dict:
-    '''Отправляет справочное сообщение'''
-    import urllib.request
-    
-    help_text = (
-        "ℹ️ <b>Как участвовать в розыгрыше:</b>\n\n"
-        "1️⃣ Нажмите кнопку <b>🎲 БРОСИТЬ КУБИК</b>\n"
-        "2️⃣ Узнайте ваш приз\n"
-        "3️⃣ Приходите в салон за сертификатом!\n\n"
-        "Удачи! ✨"
-    )
-    
-    keyboard = {
-        'keyboard': [[{'text': '🎲 БРОСИТЬ КУБИК'}]],
-        'resize_keyboard': True,
-        'one_time_keyboard': False
-    }
-    
-    url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
-    data = json.dumps({
-        'chat_id': chat_id,
-        'text': help_text,
-        'parse_mode': 'HTML',
-        'reply_markup': keyboard
-    }).encode('utf-8')
-    
-    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req) as response:
         return json.loads(response.read().decode('utf-8'))
