@@ -131,8 +131,7 @@ def send_welcome_message(bot_token: str, chat_id: int, user_id: int) -> dict:
         welcome_text = (
             "Добро пожаловать в розыгрыш призов.\n\n"
             "<b>Вот какие подарки можно выиграть:</b>\n\n"
-            "- Сертификат в салон на 10 000₽\n"
-            "- Сертификат в салон на 5 000₽\n"
+            "- Любая процедура бесплатно\n"
             "- Сертификат в салон на 1 000₽\n"
             "- Сертификат в салон на 500₽\n\n"
             "Бросьте кубик, чтобы узнать что выпадет именно вам."
@@ -173,10 +172,9 @@ def handle_dice_roll(bot_token: str, chat_id: int, user_id: int, username: str, 
             return json.loads(response.read().decode('utf-8'))
     
     prizes = [
-        {'amount': 10000, 'label': 'Сертификат в салон на 10 000₽', 'chance': 5},
-        {'amount': 5000, 'label': 'Сертификат в салон на 5 000₽', 'chance': 15},
-        {'amount': 1000, 'label': 'Сертификат в салон на 1 000₽', 'chance': 30},
-        {'amount': 500, 'label': 'Сертификат в салон на 500₽', 'chance': 50},
+        {'amount': 0, 'label': 'Любая процедура бесплатно', 'chance': 0, 'promo': ''},
+        {'amount': 1000, 'label': 'Сертификат в салон на 1 000₽', 'chance': 10, 'promo': 'PROMO1000'},
+        {'amount': 500, 'label': 'Сертификат в салон на 500₽', 'chance': 90, 'promo': 'PROMO500'},
     ]
     
     rand = random.random() * 100
@@ -200,11 +198,16 @@ def handle_dice_roll(bot_token: str, chat_id: int, user_id: int, username: str, 
     
     time.sleep(5)
     
+    if selected_prize['promo']:
+        booking_info = f"Онлайн запись - https://dikidi.net/1815750, в комментариях к записи укажите сообщение {selected_prize['promo']}"
+    else:
+        booking_info = "Ваш приз ожидает вас в салоне."
+    
     result_text = (
         f"<b>Поздравляем!</b>\n\n"
         f"Вы выиграли:\n"
         f"<b>{selected_prize['label']}</b>\n\n"
-        f"Ваш приз ожидает вас в салоне."
+        f"{booking_info}"
     )
     
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
