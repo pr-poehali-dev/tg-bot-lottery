@@ -132,6 +132,7 @@ def send_welcome_message(bot_token: str, chat_id: int, user_id: int) -> dict:
             "Добро пожаловать в розыгрыш призов.\n\n"
             "<b>Вот какие подарки можно выиграть:</b>\n\n"
             "- Любая процедура бесплатно\n"
+            "- Секретный бьютибокс\n"
             "- Сертификат в салон на 1 000₽\n"
             "- Сертификат в салон на 500₽\n\n"
             "Бросьте кубик, чтобы узнать что выпадет именно вам."
@@ -173,6 +174,7 @@ def handle_dice_roll(bot_token: str, chat_id: int, user_id: int, username: str, 
     
     prizes = [
         {'amount': 0, 'label': 'Любая процедура бесплатно', 'chance': 0, 'promo': ''},
+        {'amount': 0, 'label': 'Секретный бьютибокс', 'chance': 0, 'promo': ''},
         {'amount': 1000, 'label': 'Сертификат в салон на 1 000₽', 'chance': 10, 'promo': 'PROMO1000'},
         {'amount': 500, 'label': 'Сертификат в салон на 500₽', 'chance': 90, 'promo': 'PROMO500'},
     ]
